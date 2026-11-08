@@ -1,0 +1,53 @@
+name: Windows RDP
+
+on: 
+  workflow_dispatch:
+    inputs:
+      password:
+        description: 'Windows RDP Password (min 6 chars)'
+        required: true
+        default: 'P@ssw0rd1234'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+    - name: Enable RDP
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+    - name: Change Administrator Password
+      run: |
+        net user runneradmin ${{ github.event.inputs.password }}
+
+    - name: Download Ngrok
+      run: |
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        Expand-Archive -Path "ngrok.zip" -DestinationPath "."
+
+    - name: Authenticate Ngrok
+      run: |
+        .\ngrok.exe config add-authtoken "${{ secrets.NGROK_AUTH_TOKEN }}"
+
+    - name: Start Ngrok Tunnel (RDP)
+      run: |
+        Start-Process -NoNewWindow -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389"
+
+    - name: Display Connection Info
+      run: |
+        Write-Host "Waiting for Ngrok tunnel to establish..."
+        Start-Sleep -Seconds 5
+        $tunnels = (Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels").tunnels
+        Write-Host "=========================================="
+        Write-Host "RDP Connection Address: $($tunnels.public_url)"
+        Write-Host "Username: runneradmin"
+        Write-Host "Password: ${{ github.event.inputs.password }}"
+        Write-Host "=========================================="
+
+    - name: Keep Alive
+      run: |
+        while ($true) { Start-Sleep -Seconds 30 }
